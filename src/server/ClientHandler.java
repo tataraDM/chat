@@ -39,7 +39,7 @@ public class ClientHandler implements Runnable {
                 handleMessage(msg);
             }
         } catch (EOFException | java.net.SocketException e) {
-            // 客户端正常断开
+            // 正常断开
         } catch (Exception e) {
             System.err.println("[Handler] 异常: " + e.getMessage());
         } finally {
@@ -57,12 +57,11 @@ public class ClientHandler implements Runnable {
 
             case Message.REGISTER: {
                 String uname = msg.getFrom();
-                String pwd   = msg.getContent();
                 if (uname == null || uname.isBlank()) {
                     send(new Message(Message.REGISTER_FAIL, "server", uname, "用户名不能为空"));
                     return;
                 }
-                if (db.register(uname, pwd)) {
+                if (db.register(uname, msg.getContent())) {
                     System.out.println("[Server] 新用户注册: " + uname);
                     send(new Message(Message.REGISTER_SUCCESS, "server", uname, "注册成功"));
                 } else {
@@ -90,6 +89,9 @@ public class ClientHandler implements Runnable {
                 server.addUser(username, this);
                 System.out.println("[Server] 用户上线: " + username);
                 send(new Message(Message.LOGIN_SUCCESS, "server", username, "登录成功"));
+                // 发送联系人列表
+                sendContacts(db);
+                // 广播在线状态
                 server.broadcastUserList();
                 break;
             }
@@ -105,9 +107,65 @@ public class ClientHandler implements Runnable {
                 String peer = msg.getContent();
                 List<Message> history = db.getHistory(msg.getFrom(), peer);
                 for (Message h : history) {
-                    send(new Message(Message.HISTORY_RESP, h.getFrom(), h.getTo(), h.getContent(), h.getTimestamp()));
+                    send(new Message(Message.HISTORY_RESP,
+                            h.getFrom(), h.getTo(), h.getContent(), h.getTimestamp()));
                 }
                 send(new Message(Message.HISTORY_RESP, "__END__", peer, ""));
+                break;
+            }
+
+            case Message.ALL_USERS_REQ: {
+                List<String> all = db.getAllUsers(msg.getFrom());
+                send(new Message(Message.ALL_USERS_RESP, "server", msg.getFrom(),
+                        String.join(",", all)));
+                break;
+            }
+
+            case Message.FRIEND_REQ: {
+                String from = msg.getFrom();
+                String to   = msg.getTo();
+                if (db.areFriends(from, to)) {
+                    send(new Message(Message.FRIEND_REJECT, "server", from, "你们已经是联系人了"));
+                    return;
+                }
+                if (db.hasPendingRequest(from, to)) {
+                    send(new Message(Message.FRIEND_REJECT, "server", from, "请求已发送，等待对方确认"));
+                    return;
+                }
+                db.sendFriendRequest(from, to);
+                // 如果对方在线，实时推送请求
+                ClientHandler targetHandler = server.getUser(to);
+                if (targetHandler != null) {
+                    targetHandler.send(new Message(Message.FRIEND_REQ, from, to, ""));
+                }
+                send(new Message(Message.FRIEND_ACCEPT, "server", from, "请求已发送"));
+                break;
+            }
+
+            case Message.FRIEND_ACCEPT: {
+                // from=接受者, to=请求发起者, content="accept" or "reject"
+                String acceptor  = msg.getFrom();
+                String requester = msg.getTo();
+                boolean accept   = "accept".equals(msg.getContent());
+                if (accept) {
+                    db.acceptFriendRequest(requester, acceptor);
+                    // 通知接受者更新联系人列表
+                    sendContacts(db);
+                    // 通知请求方（如果在线）
+                    ClientHandler requesterHandler = server.getUser(requester);
+                    if (requesterHandler != null) {
+                        requesterHandler.sendContacts(db);
+                        requesterHandler.send(new Message(Message.FRIEND_ACCEPT,
+                                acceptor, requester, "accept"));
+                    }
+                } else {
+                    db.rejectFriendRequest(requester, acceptor);
+                    ClientHandler requesterHandler = server.getUser(requester);
+                    if (requesterHandler != null) {
+                        requesterHandler.send(new Message(Message.FRIEND_REJECT,
+                                acceptor, requester, acceptor + " 拒绝了你的好友请求"));
+                    }
+                }
                 break;
             }
 
@@ -121,5 +179,12 @@ public class ClientHandler implements Runnable {
             default:
                 break;
         }
+    }
+
+    /** 向本客户端推送最新联系人列表 */
+    void sendContacts(DatabaseManager db) {
+        List<String> contacts = db.getContacts(username);
+        send(new Message(Message.CONTACTS, "server", username,
+                String.join(",", contacts)));
     }
 }

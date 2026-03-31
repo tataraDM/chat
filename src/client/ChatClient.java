@@ -3,6 +3,8 @@ package client;
 import common.Message;
 import java.io.*;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -15,7 +17,10 @@ public class ChatClient {
     private String username;
     private MessageListener listener;
 
-    // 用于阻塞等待登录/注册结果
+    /** 在 listener 设置前收到的普通消息缓冲，避免丢失 */
+    private final List<Message> messageBuffer = new ArrayList<>();
+
+    /** 用于阻塞等待登录/注册结果 */
     private final LinkedBlockingQueue<Message> authQueue = new LinkedBlockingQueue<>();
 
     public interface MessageListener {
@@ -27,26 +32,25 @@ public class ChatClient {
         this.username = username;
     }
 
-    public void setListener(MessageListener listener) {
+    public synchronized void setListener(MessageListener listener) {
         this.listener = listener;
+        // 将缓冲期间收到的消息全部补发给 listener
+        for (Message m : messageBuffer) listener.onMessage(m);
+        messageBuffer.clear();
     }
 
-    /**
-     * 连接服务器并登录，返回 null 表示成功，否则返回错误信息
-     */
+    /** 连接并登录，返回 null=成功，否则为错误信息 */
     public String connect(String password) {
         try {
             socket = new Socket(HOST, PORT);
             out = new ObjectOutputStream(socket.getOutputStream());
             out.flush();
             new Thread(this::receiveLoop, "recv-" + username).start();
-            // 发送登录请求（密码由服务端验证，这里传原文，由服务端 DatabaseManager 做 hash）
-            // 实际上密码 hash 在服务端做，客户端传明文（仅在内网/课程环境可接受）
             send(new Message(Message.LOGIN, username, "server", password));
             Message result = authQueue.poll(6, TimeUnit.SECONDS);
             if (result == null) return "连接超时，请检查服务器是否启动";
             if (Message.LOGIN_SUCCESS.equals(result.getType())) return null;
-            return result.getContent(); // 错误信息
+            return result.getContent();
         } catch (InterruptedException e) {
             return "连接被中断";
         } catch (IOException e) {
@@ -54,9 +58,7 @@ public class ChatClient {
         }
     }
 
-    /**
-     * 注册账号，返回 null 表示成功，否则返回错误信息
-     */
+    /** 注册账号，返回 null=成功，否则为错误信息 */
     public String register(String password) {
         try {
             socket = new Socket(HOST, PORT);
@@ -73,7 +75,6 @@ public class ChatClient {
         } catch (InterruptedException e) {
             return "连接被中断";
         } finally {
-            // 注册完成后关闭这个临时连接
             try { if (socket != null) socket.close(); } catch (IOException ignored) {}
         }
     }
@@ -108,20 +109,31 @@ public class ChatClient {
             ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
             while (true) {
                 Message msg = (Message) in.readObject();
-                // 登录/注册结果先放进 authQueue，由 connect()/register() 消费
                 String t = msg.getType();
+                // 登录/注册结果走 authQueue
                 if (t.equals(Message.LOGIN_SUCCESS) || t.equals(Message.LOGIN_FAIL)
                         || t.equals(Message.REGISTER_SUCCESS) || t.equals(Message.REGISTER_FAIL)) {
                     authQueue.offer(msg);
                 } else {
-                    if (listener != null) listener.onMessage(msg);
+                    // 普通消息：listener 已设置则直接转发，否则缓冲
+                    synchronized (this) {
+                        if (listener != null) {
+                            listener.onMessage(msg);
+                        } else {
+                            messageBuffer.add(msg);
+                        }
+                    }
                 }
             }
         } catch (EOFException | java.net.SocketException e) {
-            if (listener != null) listener.onDisconnected();
+            synchronized (this) {
+                if (listener != null) listener.onDisconnected();
+            }
         } catch (Exception e) {
             System.err.println("[Client] 接收异常: " + e.getMessage());
-            if (listener != null) listener.onDisconnected();
+            synchronized (this) {
+                if (listener != null) listener.onDisconnected();
+            }
         }
     }
 }

@@ -207,7 +207,7 @@ public class ChatFrame extends JFrame {
 
         // 头像
         String name = isMine ? client.getUsername() : peerName;
-        JLabel avatar = makeAvatar(name);
+        JLabel avatar = MainFrame.makeAvatar(name, 34);
 
         JPanel bubbleRow = new JPanel(new FlowLayout(isMine ? FlowLayout.RIGHT : FlowLayout.LEFT, 6, 0));
         bubbleRow.setOpaque(false);
@@ -225,26 +225,6 @@ public class ChatFrame extends JFrame {
         messagePanel.revalidate();
     }
 
-    private JLabel makeAvatar(String name) {
-        JLabel av = new JLabel() {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int hash = name.hashCode();
-                float hue = Math.abs(hash % 360) / 360f;
-                g2.setColor(Color.getHSBColor(hue, 0.55f, 0.85f));
-                g2.fillOval(0, 0, 34, 34);
-                g2.setColor(Color.WHITE);
-                g2.setFont(new Font("微软雅黑", Font.BOLD, 14));
-                String init = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase();
-                FontMetrics fm = g2.getFontMetrics();
-                g2.drawString(init, (34 - fm.stringWidth(init)) / 2,
-                        (34 + fm.getAscent() - fm.getDescent()) / 2);
-            }
-        };
-        av.setPreferredSize(new Dimension(34, 34));
-        return av;
-    }
 
     private void scrollToBottom() {
         SwingUtilities.invokeLater(() -> {

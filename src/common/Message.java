@@ -7,17 +7,23 @@ import java.util.Date;
 public class Message implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    public static final String LOGIN             = "LOGIN";
-    public static final String LOGIN_SUCCESS     = "LOGIN_SUCCESS";
-    public static final String LOGIN_FAIL        = "LOGIN_FAIL";
-    public static final String REGISTER          = "REGISTER";
-    public static final String REGISTER_SUCCESS  = "REGISTER_SUCCESS";
-    public static final String REGISTER_FAIL     = "REGISTER_FAIL";
-    public static final String LOGOUT            = "LOGOUT";
-    public static final String CHAT              = "CHAT";
-    public static final String USER_LIST         = "USER_LIST";
-    public static final String HISTORY_REQ       = "HISTORY_REQ";
-    public static final String HISTORY_RESP      = "HISTORY_RESP";
+    public static final String LOGIN            = "LOGIN";
+    public static final String LOGIN_SUCCESS    = "LOGIN_SUCCESS";
+    public static final String LOGIN_FAIL       = "LOGIN_FAIL";
+    public static final String REGISTER         = "REGISTER";
+    public static final String REGISTER_SUCCESS = "REGISTER_SUCCESS";
+    public static final String REGISTER_FAIL    = "REGISTER_FAIL";
+    public static final String LOGOUT           = "LOGOUT";
+    public static final String CHAT             = "CHAT";
+    public static final String USER_LIST        = "USER_LIST";      // 在线用户（逗号分隔）
+    public static final String CONTACTS         = "CONTACTS";       // 我的联系人列表
+    public static final String HISTORY_REQ      = "HISTORY_REQ";
+    public static final String HISTORY_RESP     = "HISTORY_RESP";
+    public static final String FRIEND_REQ       = "FRIEND_REQ";     // 发送好友请求
+    public static final String FRIEND_ACCEPT    = "FRIEND_ACCEPT";  // 接受好友请求
+    public static final String FRIEND_REJECT    = "FRIEND_REJECT";  // 拒绝好友请求
+    public static final String ALL_USERS_REQ    = "ALL_USERS_REQ";  // 查询所有注册用户
+    public static final String ALL_USERS_RESP   = "ALL_USERS_RESP"; // 所有注册用户列表
 
     private String type;
     private String from;
@@ -33,7 +39,6 @@ public class Message implements Serializable {
         this.timestamp = System.currentTimeMillis();
     }
 
-    // 允许手动设置时间戳（从数据库恢复历史消息时使用）
     public Message(String type, String from, String to, String content, long timestamp) {
         this(type, from, to, content);
         this.timestamp = timestamp;
