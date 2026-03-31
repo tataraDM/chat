@@ -1,153 +1,0 @@
-《面向对象技术课程实践》任务指导书
-[实践周子任务一]
-Java网络程序设计
-一、实验目的
-　　（1）掌握网络编程的基本概念。
-　　（2）掌握java.net包中常用网络编程工具类的功能和使用。
-　　（3）掌握Socket编程的基本方法和步骤。
-二、实验任务
-　　实现一个带有图形用户界面的网络通信程序。 
-三、实验参考
-　　1．输入下面的Java Application程序，运行该程序，写出程序的运行结果。
-/* File Name : ParseURL.java
-* 这是一个简单的关于URL的实例
-* 该实例的功能是解析命令行参数
-* 中指定的URL地址
-*/
-import java.net.*;
-import java.io.*;
-public class ParseURL 
-{
- 	public static void main(String[] args) throws Exception 
-    {
- 	    URL aURL = new URL("http://localhost:200/text.txt#BOTTOM");
- 	    System.out.println(aURL);
- 	    System.out.println("protocol = " + aURL.getProtocol());
- 	    System.out.println("host = " + aURL.getHost());
- 	    System.out.println("filename = " + aURL.getFile());
- 	   System.out.println("port = " + aURL.getPort());
- 	   System.out.println("ref = " + aURL.getRef());
-    }
-}
-　　
-　　2．下面给出的Java源代码分别是服务器端程序和客户端程序，两个程序之间可以进行通讯。输入这两个Java Application程序，然后分别运行这两个程序，并写出程序的运行结果（提示：首先在一个MS-DOS窗口运行服务器端程序，然后在另一个MS-DOS窗口再运行客户端程序）。
-/* File Name : TCPSingleUserServer.java
-* 这是一个简单的基于TCP连接服务程序
-* 该服务程序的功能十分简单，只是简单
-* 的显示并且向客户端回送客户端发送来
-* 的信息，直到客户端发送结束标记END
-*/
-import java.io.*;
-import java.net.*;
-public class TCPSingleUserServer 
-{  
-// 设置服务器的端口号，它应该大于1024
-public static final int PORT = 8080;
-public static void main(String[] args) throws IOException 
-{
- 	ServerSocket server = new ServerSocket(PORT);
- 	System.out.println("Started: " + server);
- 	try 
-    {
- 		// 等待接受用户连接
- 		Socket socket = server.accept();
- 		try 
-        {
- 			System.out.println("Connection accepted: "+ socket);
- 			BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
- 			PrintWriter out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(socket.getOutputStream())),true);
- 			while (true) 
-            {  
- 				String str = in.readLine();
- 				if (str.equals("END")) break;
- 				System.out.println("Echoing: " + str);
- 				out.println(str);
- 			}
- 		}
- 		finally
-        {
- 			System.out.println("closing...");
- 			socket.close();
- 		}	
- 	}
- 	finally 
-    {
- 		server.close();
- 	}
-}
-}
-/* File Name : TCPSingleUserClient.java
-* 这是一个简单的基于TCP连接客户程序
-* 该客户程序的功能十分简单，只是简单
-* 向服务器发送消息，并且接收从服务器
-* 发送回来的消息，将它在屏幕上显示
-*/
-import java.net.*;
-import java.io.*;
-public class TCPSingleUserClient 
-{
-public static void main(String[] args) throws IOException 
-{
- 	// 在getByName()中，使用null作为参数
- 	// 来指定本地服务器的地址
- 	InetAddress addr = InetAddress.getByName(null);
- 	// 同样的，也可以使用如下的代码来实现同样的功能
- 	// InetAddress addr = InetAddress.getByName("127.0.0.1");
- 	// InetAddress addr = InetAddress.getByName("localhost");
- 	System.out.println("addr = " + addr);
- 	Socket socket = new Socket(addr, TCPSingleUserServer.PORT);
- 	try 
-    {
- 		System.out.println("socket = " + socket);
- 		BufferedReader in =new BufferedReader(new InputStreamReader(socket.getInputStream()));
- 		PrintWriter out =new PrintWriter(new BufferedWriter(new OutputStreamWriter(socket.getOutputStream())),true);
- 		for(int i = 0; i < 10; i ++) 
-        {
- 			out.println("Sending Line " + i + " ....");
- 			String str = in.readLine();
- 			System.out.println(str);
- 		}
- 		out.println("END");
- 	}
- 	finally 
-    {
- 		System.out.println("closing...");
- 		socket.close();
- 	}
-}
-}
-
-[实践周子任务二]
-JDBC程序设计
-一、实验目的
-　　（1）了解JDBC工作的基本原理
-　　（2）掌握JDBC编程的基本步骤
-二、实验任务
-　　（1）设置JDBC数据源。 
-　　（2）按要求编写一个带有图形用户界面的数据库应用程序，具备增加、删除、查询、修改功能。
-三、实验参考
-　　1．设置JDBC数据源：参照实验指导书有关数据库应用部分内容。
-　　2．参照如下所示的SQL命令，在MySQL数据库中创建用户信息表“userinfo”，并输入如表1所示的数据。
-　　create table userinfo(
-　　code	varchar(4) not null,	/ *		用户代码			* /
-　　name	varchar(10),			/ *		用户姓名			* /
-　　password varchar(6),			/ *		用户密码			* /
-　　email	 varchar(40),		/ *		用户电子邮件地址	* /
-　　primary key(code));
-　　
-　　表1：用户信息表中的数据
-代码姓名密码电子邮件地址7101宋晓梅123456xiaomei@yahoo.com.cn7102关松杰654321songjie@263.net7103李晓梅123654xiaomei@yahoo.com.cn7104张松岩456123songyan@yahoo.com.cn7105王亚杰321456yajie@hotmail.com7106曲小声654321xiaosheng@263.net
-　　编写JDBC应用程序，首先将用户信息表中的数据在屏幕上显示出来，然后插入一个记录，最后将更新以后数据表中的数据在屏幕上显示出来。
-　　
-[实践周高级子任务]
-    结合子任务一和二，构建一个带有消息存储功能的即时网络通信应用程序。样式类似QQ或微信。
-　　
-
-
-
-
-
-
-6
-
-
