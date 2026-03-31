@@ -91,6 +91,8 @@ public class ClientHandler implements Runnable {
                 send(new Message(Message.LOGIN_SUCCESS, "server", username, "登录成功"));
                 // 发送联系人列表
                 sendContacts(db);
+                // 推送待处理的好友申请
+                sendPendingRequests(db);
                 // 广播在线状态
                 server.broadcastUserList();
                 break;
@@ -186,5 +188,14 @@ public class ClientHandler implements Runnable {
         List<String> contacts = db.getContacts(username);
         send(new Message(Message.CONTACTS, "server", username,
                 String.join(",", contacts)));
+    }
+
+    /** 向本客户端推送待处理的好友申请列表 */
+    void sendPendingRequests(DatabaseManager db) {
+        List<String> pending = db.getPendingRequestsTo(username);
+        if (!pending.isEmpty()) {
+            send(new Message(Message.PENDING_REQUESTS, "server", username,
+                    String.join(",", pending)));
+        }
     }
 }

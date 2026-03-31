@@ -24,6 +24,7 @@ public class Message implements Serializable {
     public static final String FRIEND_REJECT    = "FRIEND_REJECT";  // 拒绝好友请求
     public static final String ALL_USERS_REQ    = "ALL_USERS_REQ";  // 查询所有注册用户
     public static final String ALL_USERS_RESP   = "ALL_USERS_RESP"; // 所有注册用户列表
+    public static final String PENDING_REQUESTS = "PENDING_REQUESTS"; // 待处理好友申请列表
 
     private String type;
     private String from;

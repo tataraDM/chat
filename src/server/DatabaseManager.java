@@ -192,6 +192,21 @@ public class DatabaseManager {
         } catch (SQLException e) { return false; }
     }
 
+    /** 返回所有向 user 发送的待处理请求的发起人列表 */
+    public List<String> getPendingRequestsTo(String user) {
+        List<String> list = new ArrayList<>();
+        try (Connection conn = getConn();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT from_user FROM friend_requests WHERE to_user=? AND status='pending'")) {
+            ps.setString(1, user);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) list.add(rs.getString(1));
+        } catch (SQLException e) {
+            System.err.println("[DB] getPendingRequestsTo 失败: " + e.getMessage());
+        }
+        return list;
+    }
+
     /** 检查是否已发过请求（pending）*/
     public boolean hasPendingRequest(String from, String to) {
         try (Connection conn = getConn();

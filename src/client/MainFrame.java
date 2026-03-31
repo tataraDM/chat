@@ -23,9 +23,9 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
     private final Set<String> onlineUsers = new HashSet<>();
     private JLabel statusLabel;
 
-    // 等待 ALL_USERS_RESP 时临时存储
-    private volatile String[] pendingAllUsers = null;
-    private final Object allUsersLock = new Object();
+    // 待处理的好友申请（发起人列表）
+    private final java.util.List<String> pendingRequests = new ArrayList<>();
+    private JButton notifyBtn;
 
     public MainFrame(ChatClient client) {
         this.client = client;
@@ -69,6 +69,17 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
         namePanel.add(statusLabel);
         avatarArea.add(namePanel);
 
+        // 通知按钮（好友申请）
+        notifyBtn = new JButton("申请(0)");
+        notifyBtn.setFont(new Font("微软雅黑", Font.PLAIN, 11));
+        notifyBtn.setForeground(Color.RED);
+        notifyBtn.setBorderPainted(false);
+        notifyBtn.setContentAreaFilled(false);
+        notifyBtn.setFocusPainted(false);
+        notifyBtn.setVisible(false);
+        notifyBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        notifyBtn.addActionListener(e -> showPendingRequestsDialog());
+
         // 添加联系人按钮
         JButton addBtn = new JButton("+");
         addBtn.setFont(new Font("Arial", Font.BOLD, 18));
@@ -80,8 +91,13 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
         addBtn.setToolTipText("添加联系人");
         addBtn.addActionListener(e -> openAddContactDialog());
 
+        JPanel eastBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        eastBtns.setOpaque(false);
+        eastBtns.add(notifyBtn);
+        eastBtns.add(addBtn);
+
         header.add(avatarArea, BorderLayout.CENTER);
-        header.add(addBtn, BorderLayout.EAST);
+        header.add(eastBtns, BorderLayout.EAST);
 
         // === 联系人列表 ===
         JList<String> userList = new JList<>(userModel);
@@ -183,14 +199,20 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
                 break;
             }
 
+            case Message.PENDING_REQUESTS: {
+                pendingRequests.clear();
+                if (!msg.getContent().isEmpty())
+                    Collections.addAll(pendingRequests, msg.getContent().split(","));
+                updateNotifyBtn();
+                break;
+            }
+
             case Message.FRIEND_REQ: {
+                // 实时收到申请：加入列表，更新角标
                 String requester = msg.getFrom();
-                int choice = JOptionPane.showConfirmDialog(this,
-                        requester + " 请求添加你为联系人",
-                        "好友请求", JOptionPane.YES_NO_OPTION);
-                String ans = (choice == JOptionPane.YES_OPTION) ? "accept" : "reject";
-                client.send(new Message(Message.FRIEND_ACCEPT,
-                        client.getUsername(), requester, ans));
+                if (!pendingRequests.contains(requester))
+                    pendingRequests.add(requester);
+                updateNotifyBtn();
                 break;
             }
 
@@ -223,6 +245,89 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
     private void refreshList() {
         userModel.clear();
         contacts.forEach(userModel::addElement);
+    }
+
+    private void updateNotifyBtn() {
+        int n = pendingRequests.size();
+        notifyBtn.setText("申请(" + n + ")");
+        notifyBtn.setVisible(n > 0);
+    }
+
+    private void showPendingRequestsDialog() {
+        if (pendingRequests.isEmpty()) return;
+        JDialog dialog = new JDialog(this, "好友申请", true);
+        dialog.setSize(300, 400);
+        dialog.setLocationRelativeTo(this);
+        dialog.setLayout(new BorderLayout());
+
+        JLabel title = new JLabel("待处理的好友申请", SwingConstants.CENTER);
+        title.setFont(new Font("微软雅黑", Font.BOLD, 13));
+        title.setBorder(new EmptyBorder(12, 0, 8, 0));
+
+        JPanel listPanel = new JPanel();
+        listPanel.setLayout(new BoxLayout(listPanel, BoxLayout.Y_AXIS));
+        listPanel.setBackground(LIST_BG);
+
+        // 快照，避免 ConcurrentModification
+        java.util.List<String> snapshot = new ArrayList<>(pendingRequests);
+        for (String requester : snapshot) {
+            JPanel row = new JPanel(new BorderLayout());
+            row.setBackground(Color.WHITE);
+            row.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0xEEEEEE)),
+                new EmptyBorder(10, 14, 10, 14)));
+            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+
+            JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+            left.setOpaque(false);
+            left.add(MainFrame.makeAvatar(requester, 36));
+            JLabel nameL = new JLabel(requester);
+            nameL.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+            left.add(nameL);
+
+            JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+            btnPanel.setOpaque(false);
+
+            JButton acceptBtn = new JButton("同意");
+            acceptBtn.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+            acceptBtn.setForeground(Color.WHITE);
+            acceptBtn.setBackground(PRIMARY);
+            acceptBtn.setFocusPainted(false);
+            acceptBtn.addActionListener(e -> {
+                client.send(new Message(Message.FRIEND_ACCEPT,
+                        client.getUsername(), requester, "accept"));
+                pendingRequests.remove(requester);
+                updateNotifyBtn();
+                dialog.dispose();
+                if (!pendingRequests.isEmpty()) showPendingRequestsDialog();
+            });
+
+            JButton rejectBtn = new JButton("拒绝");
+            rejectBtn.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+            rejectBtn.setFocusPainted(false);
+            rejectBtn.addActionListener(e -> {
+                client.send(new Message(Message.FRIEND_ACCEPT,
+                        client.getUsername(), requester, "reject"));
+                pendingRequests.remove(requester);
+                updateNotifyBtn();
+                dialog.dispose();
+                if (!pendingRequests.isEmpty()) showPendingRequestsDialog();
+            });
+
+            btnPanel.add(acceptBtn);
+            btnPanel.add(rejectBtn);
+
+            row.add(left, BorderLayout.CENTER);
+            row.add(btnPanel, BorderLayout.EAST);
+            listPanel.add(row);
+        }
+
+        JScrollPane scroll = new JScrollPane(listPanel);
+        scroll.setBorder(null);
+
+        dialog.add(title, BorderLayout.NORTH);
+        dialog.add(scroll, BorderLayout.CENTER);
+        dialog.setVisible(true);
     }
 
     // ===== 添加联系人 =====
