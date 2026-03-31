@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "Read(//d D:/code/java/**)",
+      "Bash(javac -encoding UTF-8 -d out -sourcepath src src/common/Message.java src/server/MessageStore.java src/server/ClientHandler.java src/server/ChatServer.java src/client/ChatClient.java src/client/LoginFrame.java src/client/MainFrame.java src/client/ChatFrame.java)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(cd:*)"
+    ]
+  }
+}
