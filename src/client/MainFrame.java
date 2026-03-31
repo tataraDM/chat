@@ -69,25 +69,17 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
         namePanel.add(statusLabel);
         avatarArea.add(namePanel);
 
-        // 通知按钮（好友申请）
-        notifyBtn = new JButton("申请(0)");
-        notifyBtn.setFont(new Font("微软雅黑", Font.PLAIN, 11));
-        notifyBtn.setForeground(Color.RED);
-        notifyBtn.setBorderPainted(false);
-        notifyBtn.setContentAreaFilled(false);
-        notifyBtn.setFocusPainted(false);
+        // 通知按钮（好友申请）— 红色圆角胶囊
+        notifyBtn = makeRoundBtn("申请(0)", new Color(0xE53935), Color.WHITE);
+        notifyBtn.setFont(new Font("微软雅黑", Font.BOLD, 11));
+        notifyBtn.setPreferredSize(new Dimension(64, 26));
         notifyBtn.setVisible(false);
-        notifyBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         notifyBtn.addActionListener(e -> showPendingRequestsDialog());
 
-        // 添加联系人按钮
-        JButton addBtn = new JButton("+");
+        // 添加联系人按钮— 绿色圆角
+        JButton addBtn = makeRoundBtn("+", PRIMARY, Color.WHITE);
         addBtn.setFont(new Font("Arial", Font.BOLD, 18));
-        addBtn.setForeground(PRIMARY);
-        addBtn.setBorderPainted(false);
-        addBtn.setContentAreaFilled(false);
-        addBtn.setFocusPainted(false);
-        addBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        addBtn.setPreferredSize(new Dimension(32, 26));
         addBtn.setToolTipText("添加联系人");
         addBtn.addActionListener(e -> openAddContactDialog());
 
@@ -288,11 +280,7 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
             JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
             btnPanel.setOpaque(false);
 
-            JButton acceptBtn = new JButton("同意");
-            acceptBtn.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            acceptBtn.setForeground(Color.WHITE);
-            acceptBtn.setBackground(PRIMARY);
-            acceptBtn.setFocusPainted(false);
+            JButton acceptBtn = makeRoundBtn("同意", PRIMARY, Color.WHITE);
             acceptBtn.addActionListener(e -> {
                 client.send(new Message(Message.FRIEND_ACCEPT,
                         client.getUsername(), requester, "accept"));
@@ -302,9 +290,7 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
                 if (!pendingRequests.isEmpty()) showPendingRequestsDialog();
             });
 
-            JButton rejectBtn = new JButton("拒绝");
-            rejectBtn.setFont(new Font("微软雅黑", Font.PLAIN, 12));
-            rejectBtn.setFocusPainted(false);
+            JButton rejectBtn = makeRoundBtn("拒绝", new Color(0xAAAAAA), Color.WHITE);
             rejectBtn.addActionListener(e -> {
                 client.send(new Message(Message.FRIEND_ACCEPT,
                         client.getUsername(), requester, "reject"));
@@ -370,12 +356,9 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setBackground(LIST_BG);
 
-        JButton sendBtn = new JButton("发送好友请求");
+        JButton sendBtn = makeRoundBtn("发送好友请求", PRIMARY, Color.WHITE);
         sendBtn.setFont(new Font("微软雅黑", Font.BOLD, 13));
-        sendBtn.setBackground(PRIMARY);
-        sendBtn.setForeground(Color.WHITE);
-        sendBtn.setFocusPainted(false);
-        sendBtn.setBorder(new EmptyBorder(10, 0, 10, 0));
+        sendBtn.setPreferredSize(new Dimension(0, 44));
         sendBtn.addActionListener(e -> {
             String target = list.getSelectedValue();
             if (target == null) {
@@ -391,6 +374,32 @@ public class MainFrame extends JFrame implements ChatClient.MessageListener {
         dialog.add(new JScrollPane(list), BorderLayout.CENTER);
         dialog.add(sendBtn, BorderLayout.SOUTH);
         dialog.setVisible(true);
+    }
+
+    // ===== 工具按钮 =====
+
+    /** 创建带圆角填充色的按钮，避免系统 L&F 下 setBackground 失效 */
+    static JButton makeRoundBtn(String text, Color bg, Color fg) {
+        JButton btn = new JButton(text) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getModel().isPressed() ? bg.darker() : bg);
+                g2.fill(new java.awt.geom.RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 8, 8));
+                g2.setColor(fg);
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(getText(),
+                    (getWidth() - fm.stringWidth(getText())) / 2,
+                    (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
+            }
+        };
+        btn.setFont(new Font("微软雅黑", Font.PLAIN, 12));
+        btn.setBorderPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setFocusPainted(false);
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return btn;
     }
 
     // ===== 头像 =====
