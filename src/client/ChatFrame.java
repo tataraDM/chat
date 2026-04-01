@@ -1,180 +1,332 @@
 package client;
 
 import common.Message;
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import java.awt.*;
-import java.awt.event.*;
-import java.awt.geom.RoundRectangle2D;
+import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.input.KeyCode;
+import javafx.scene.layout.*;
+import javafx.scene.text.Font;
+import javafx.stage.Popup;
+import javafx.stage.Stage;
+
 import java.util.ArrayList;
 import java.util.List;
 
-public class ChatFrame extends JFrame {
-    private static final Color PRIMARY      = new Color(0x07C160);
-    private static final Color HEADER_BG    = new Color(0xEDEDED);
-    private static final Color CHAT_BG      = new Color(0xF0F0F0);
-    private static final Color BUBBLE_MINE  = new Color(0x95EC69);  // 我的消息（绿色）
-    private static final Color BUBBLE_OTHER = Color.WHITE;           // 对方消息（白色）
-    private static final Color INPUT_BG     = new Color(0xFAFAFA);
-
+public class ChatFrame {
     private final ChatClient client;
-    private final String peerName;
-    private boolean peerOnline;
+    private final String peerName;   // 私聊=用户名，群聊=groupId
+    private final boolean isGroup;
+    private final boolean peerOnline;
 
-    private JPanel messagePanel;    // 装所有气泡
-    private JScrollPane scrollPane;
-    private JTextArea inputArea;
+    private final Stage stage;
+    private VBox messageBox;
+    private ScrollPane scrollPane;
+    private TextArea inputArea;
     private boolean historyLoaded = false;
-    private final List<Message> pendingHistory = new ArrayList<>();
+    private final List<Message> pendingHistory  = new ArrayList<>();
     private final List<Message> pendingRealtime = new ArrayList<>();
 
-    public ChatFrame(ChatClient client, String peerName, boolean peerOnline) {
-        this.client    = client;
-        this.peerName  = peerName;
-        this.peerOnline = peerOnline;
+    /** 全部已显示的消息（历史+实时），用于搜索取消后还原 */
+    private final List<Message> allMessages = new ArrayList<>();
 
-        setTitle(peerName);
-        setSize(480, 640);
-        setLocationRelativeTo(null);
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        setContentPane(buildUI());
+    // 搜索相关
+    private HBox searchBar;
+    private TextField searchField;
+    private final List<Message> searchResults = new ArrayList<>();
+    private boolean searchMode = false;
+
+    // 真实 Emoji（JavaFX 可以正常渲染）
+    private static final String[] EMOJIS = {
+        "😀", "😂", "😊", "😍", "🥰",
+        "😘", "😜", "🤔", "😳", "😢",
+        "😭", "😡", "😱", "🙏", "👍",
+        "👎", "👌", "❤️", "🔥", "🎉",
+        "🌟", "💯", "🚀", "☀️", "🌙",
+        "🐶", "🐱", "🌹", "🎂", "☕"
+    };
+
+    public ChatFrame(ChatClient client, String peerName, boolean peerOnline, boolean isGroup) {
+        this.client     = client;
+        this.peerName   = peerName;
+        this.peerOnline = peerOnline;
+        this.isGroup    = isGroup;
+
+        stage = new Stage();
+        stage.setTitle(isGroup ? peerName + " (群聊)" : peerName);
+        stage.setWidth(500);
+        stage.setHeight(680);
+
+        Scene scene = new Scene(buildUI());
+        scene.getStylesheets().add(getClass().getResource("style.css").toExternalForm());
+        stage.setScene(scene);
 
         // 请求历史记录
-        client.requestHistory(peerName);
+        if (isGroup) {
+            client.requestGroupHistory(peerName);
+        } else {
+            client.requestHistory(peerName);
+        }
     }
 
-    private JPanel buildUI() {
-        JPanel root = new JPanel(new BorderLayout());
+    public Stage getStage() { return stage; }
+    public void show() { stage.show(); }
 
-        // === 顶部标题栏 ===
-        JPanel header = new JPanel(new BorderLayout());
-        header.setBackground(HEADER_BG);
-        header.setBorder(new EmptyBorder(10, 14, 10, 14));
+    private BorderPane buildUI() {
+        BorderPane root = new BorderPane();
 
-        JLabel peerLabel = new JLabel(peerName);
-        peerLabel.setFont(new Font("微软雅黑", Font.BOLD, 15));
-        JLabel peerStatus = new JLabel(peerOnline ? "在线" : "离线");
-        peerStatus.setFont(new Font("微软雅黑", Font.PLAIN, 11));
-        peerStatus.setForeground(peerOnline ? PRIMARY : Color.GRAY);
+        // === 顶部 ===
+        HBox header = new HBox(10);
+        header.getStyleClass().add("chat-header");
+        header.setAlignment(Pos.CENTER_LEFT);
 
-        JPanel titleBox = new JPanel();
-        titleBox.setOpaque(false);
-        titleBox.setLayout(new BoxLayout(titleBox, BoxLayout.Y_AXIS));
-        titleBox.add(peerLabel);
-        titleBox.add(peerStatus);
-        header.add(titleBox, BorderLayout.CENTER);
+        VBox titleBox = new VBox(2);
+        Label peerLabel = new Label(isGroup ? stage.getTitle() : peerName);
+        peerLabel.getStyleClass().add("chat-peer-name");
+        Label statusL = new Label(isGroup ? "群聊" : (peerOnline ? "在线" : "离线"));
+        statusL.setStyle("-fx-font-size: 11px; -fx-text-fill: " +
+                (peerOnline || isGroup ? "#07C160" : "#999999") + ";");
+        titleBox.getChildren().addAll(peerLabel, statusL);
 
-        // === 消息区 ===
-        messagePanel = new JPanel();
-        messagePanel.setLayout(new BoxLayout(messagePanel, BoxLayout.Y_AXIS));
-        messagePanel.setBackground(CHAT_BG);
-        messagePanel.setBorder(new EmptyBorder(8, 8, 8, 8));
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        scrollPane = new JScrollPane(messagePanel);
-        scrollPane.setBorder(null);
-        scrollPane.setBackground(CHAT_BG);
-        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        Button searchBtn = new Button("🔍 搜索");
+        searchBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #555; -fx-font-size: 12px; -fx-cursor: hand;");
+        searchBtn.setOnAction(e -> toggleSearch());
+        header.getChildren().addAll(titleBox, spacer, searchBtn);
+
+        // === 搜索栏（默认隐藏）===
+        searchBar = new HBox(6);
+        searchBar.getStyleClass().add("search-bar");
+        searchBar.setAlignment(Pos.CENTER_LEFT);
+        searchBar.setVisible(false);
+        searchBar.setManaged(false);
+
+        searchField = new TextField();
+        searchField.setPromptText("输入关键字搜索");
+        searchField.getStyleClass().add("search-field");
+        HBox.setHgrow(searchField, Priority.ALWAYS);
+        searchField.setOnAction(e -> doSearch());
+
+        Button doSearchBtn = new Button("搜索");
+        doSearchBtn.getStyleClass().add("btn-search");
+        doSearchBtn.setOnAction(e -> doSearch());
+
+        Button cancelBtn = new Button("取消");
+        cancelBtn.getStyleClass().add("btn-cancel");
+        cancelBtn.setOnAction(e -> closeSearchAndRestore());
+
+        searchBar.getChildren().addAll(searchField, doSearchBtn, cancelBtn);
+
+        VBox topArea = new VBox(header, searchBar);
+
+        // === 消息区域 ===
+        messageBox = new VBox(4);
+        messageBox.getStyleClass().add("chat-area");
+        messageBox.setPadding(new Insets(8));
+
+        scrollPane = new ScrollPane(messageBox);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setStyle("-fx-background-color: #F0F0F0; -fx-background: #F0F0F0;");
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        // 自动滚动到底部
+        messageBox.heightProperty().addListener((obs, o, n) -> {
+            if (!searchMode) scrollPane.setVvalue(1.0);
+        });
 
         // === 输入区 ===
-        JPanel inputPanel = new JPanel(new BorderLayout());
-        inputPanel.setBackground(INPUT_BG);
-        inputPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(0xDDDDDD)),
-            new EmptyBorder(8, 10, 8, 10)));
+        VBox inputPanel = new VBox(4);
+        inputPanel.getStyleClass().add("input-area");
 
-        inputArea = new JTextArea(3, 0);
-        inputArea.setFont(new Font("微软雅黑", Font.PLAIN, 14));
-        inputArea.setLineWrap(true);
-        inputArea.setWrapStyleWord(true);
-        inputArea.setBorder(null);
-        inputArea.setBackground(INPUT_BG);
-        // Ctrl+Enter 或 Enter 发送（Enter 换行用 Shift+Enter）
-        inputArea.addKeyListener(new KeyAdapter() {
-            @Override public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) {
-                    e.consume();
-                    doSend();
-                }
+        HBox toolbar = new HBox(8);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+
+        Button emojiBtn = new Button("😀 表情");
+        emojiBtn.getStyleClass().add("emoji-btn");
+        emojiBtn.setOnAction(e -> showEmojiPopup(emojiBtn));
+
+        Label hint = new Label("Enter 发送  |  Shift+Enter 换行");
+        hint.setStyle("-fx-text-fill: #AAAAAA; -fx-font-size: 10px;");
+        toolbar.getChildren().addAll(emojiBtn, hint);
+
+        inputArea = new TextArea();
+        inputArea.setPrefRowCount(3);
+        inputArea.setWrapText(true);
+        inputArea.setStyle("-fx-font-size: 14px; -fx-background-color: #FAFAFA;");
+        inputArea.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER && !e.isShiftDown()) {
+                e.consume();
+                doSend();
             }
         });
 
-        JButton sendBtn = new JButton("发送") {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(getModel().isPressed() ? new Color(0x05A050) : PRIMARY);
-                g2.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), 8, 8));
-                g2.setColor(Color.WHITE);
-                g2.setFont(new Font("微软雅黑", Font.BOLD, 13));
-                FontMetrics fm = g2.getFontMetrics();
-                g2.drawString(getText(),
-                    (getWidth() - fm.stringWidth(getText())) / 2,
-                    (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
-            }
-        };
-        sendBtn.setPreferredSize(new Dimension(72, 32));
-        sendBtn.setBorderPainted(false);
-        sendBtn.setContentAreaFilled(false);
-        sendBtn.setFocusPainted(false);
-        sendBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        sendBtn.addActionListener(e -> doSend());
+        HBox btnRow = new HBox();
+        btnRow.setAlignment(Pos.CENTER_RIGHT);
+        Button sendBtn = new Button("发送");
+        sendBtn.getStyleClass().add("send-btn");
+        sendBtn.setOnAction(e -> doSend());
+        btnRow.getChildren().add(sendBtn);
 
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 4));
-        btnRow.setOpaque(false);
-        btnRow.add(sendBtn);
+        inputPanel.getChildren().addAll(toolbar, inputArea, btnRow);
 
-        JLabel hint = new JLabel("Enter 发送   Shift+Enter 换行");
-        hint.setFont(new Font("微软雅黑", Font.PLAIN, 10));
-        hint.setForeground(Color.GRAY);
-
-        JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputScroll.setBorder(null);
-        inputScroll.setBackground(INPUT_BG);
-
-        inputPanel.add(hint, BorderLayout.NORTH);
-        inputPanel.add(inputScroll, BorderLayout.CENTER);
-        inputPanel.add(btnRow, BorderLayout.SOUTH);
-
-        root.add(header, BorderLayout.NORTH);
-        root.add(scrollPane, BorderLayout.CENTER);
-        root.add(inputPanel, BorderLayout.SOUTH);
+        root.setTop(topArea);
+        root.setCenter(scrollPane);
+        root.setBottom(inputPanel);
         return root;
     }
 
-    private void doSend() {
-        String text = inputArea.getText().trim();
-        if (text.isEmpty()) return;
-        inputArea.setText("");
-        Message msg = new Message(Message.CHAT, client.getUsername(), peerName, text);
-        client.send(msg);
-        addBubble(msg, true);
+    // ===== Emoji 弹出 =====
+    private void showEmojiPopup(Button anchor) {
+        Popup popup = new Popup();
+        popup.setAutoHide(true);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(2);
+        grid.setVgap(2);
+        grid.setPadding(new Insets(8));
+        grid.setStyle("-fx-background-color: white; -fx-border-color: #DDDDDD; " +
+                "-fx-border-radius: 6; -fx-background-radius: 6; " +
+                "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 8, 0, 0, 2);");
+
+        int col = 0, row = 0;
+        for (String emoji : EMOJIS) {
+            Button btn = new Button(emoji);
+            btn.getStyleClass().add("emoji-grid-btn");
+            btn.setMinSize(40, 36);
+            btn.setOnAction(e -> {
+                inputArea.insertText(inputArea.getCaretPosition(), emoji);
+                popup.hide();
+                inputArea.requestFocus();
+            });
+            grid.add(btn, col, row);
+            col++;
+            if (col >= 6) { col = 0; row++; }
+        }
+
+        popup.getContent().add(grid);
+        // 显示在按钮上方
+        var bounds = anchor.localToScreen(anchor.getBoundsInLocal());
+        popup.show(anchor, bounds.getMinX(), bounds.getMinY() - 220);
     }
 
-    /** 接收来自 MainFrame 转发的实时消息 */
-    public void receiveMessage(Message msg) {
-        SwingUtilities.invokeLater(() -> addBubble(msg, msg.getFrom().equals(client.getUsername())));
+    // ===== 搜索 =====
+    private void toggleSearch() {
+        boolean show = !searchBar.isVisible();
+        searchBar.setVisible(show);
+        searchBar.setManaged(show);
+        if (show) {
+            searchField.setText("");
+            searchField.requestFocus();
+        } else {
+            closeSearchAndRestore();
+        }
     }
 
-    /** 接收历史消息（由 MainFrame 转发） */
-    public void receiveHistory(Message msg) {
-        SwingUtilities.invokeLater(() -> {
+    private void closeSearchAndRestore() {
+        searchBar.setVisible(false);
+        searchBar.setManaged(false);
+        searchMode = false;
+        searchResults.clear();
+        searchField.setText("");
+
+        // 还原所有聊天记录
+        messageBox.getChildren().clear();
+        for (Message m : allMessages) {
+            addBubbleInternal(m, m.getFrom().equals(client.getUsername()));
+        }
+        scrollToBottom();
+    }
+
+    private void doSearch() {
+        String keyword = searchField.getText().trim();
+        if (keyword.isEmpty()) return;
+        searchMode = true;
+        searchResults.clear();
+        messageBox.getChildren().clear();
+
+        if (isGroup) {
+            client.searchGroupMessages(peerName, keyword);
+        } else {
+            client.searchMessages(peerName, keyword);
+        }
+    }
+
+    /** 接收搜索结果 */
+    public void receiveSearchResult(Message msg) {
+        Platform.runLater(() -> {
             if ("__END__".equals(msg.getFrom())) {
-                // 历史加载完毕，将缓存的历史按顺序插入最前
+                if (searchResults.isEmpty()) {
+                    Label noResult = new Label("没有找到匹配的记录");
+                    noResult.setStyle("-fx-text-fill: #999999; -fx-font-size: 13px; -fx-padding: 20;");
+                    noResult.setAlignment(Pos.CENTER);
+                    noResult.setMaxWidth(Double.MAX_VALUE);
+                    messageBox.getChildren().add(noResult);
+                } else {
+                    Label tip = new Label("搜索到 " + searchResults.size() + " 条记录，点击「取消」返回");
+                    tip.setStyle("-fx-text-fill: #8E93A4; -fx-font-size: 11px; -fx-padding: 4 0 8 0;");
+                    messageBox.getChildren().add(tip);
+                    for (Message r : searchResults) {
+                        addBubbleInternal(r, r.getFrom().equals(client.getUsername()));
+                    }
+                }
+                scrollToBottom();
+            } else {
+                searchResults.add(msg);
+            }
+        });
+    }
+
+    // ===== 发送 =====
+    private void doSend() {
+        String text = inputArea.getText();
+        if (text == null || text.trim().isEmpty()) return;
+        // 去掉末尾多余的换行（Enter触发时会多一个\n）
+        text = text.stripTrailing();
+        if (text.isEmpty()) return;
+        inputArea.clear();
+
+        if (searchMode) closeSearchAndRestore();
+
+        if (isGroup) {
+            Message msg = new Message(Message.GROUP_CHAT, client.getUsername(), peerName, text);
+            client.send(msg);
+            addBubble(msg, true);
+        } else {
+            Message msg = new Message(Message.CHAT, client.getUsername(), peerName, text);
+            client.send(msg);
+            addBubble(msg, true);
+        }
+    }
+
+    /** 接收实时消息 */
+    public void receiveMessage(Message msg) {
+        Platform.runLater(() -> addBubble(msg, msg.getFrom().equals(client.getUsername())));
+    }
+
+    /** 接收历史消息 */
+    public void receiveHistory(Message msg) {
+        Platform.runLater(() -> {
+            if ("__END__".equals(msg.getFrom())) {
                 historyLoaded = true;
-                // 清空当前面板，先放历史再放 pending
-                Component[] existing = messagePanel.getComponents();
-                messagePanel.removeAll();
+                // 先保存已经在 box 里的实时消息
+                var existingNodes = new ArrayList<>(messageBox.getChildren());
+                messageBox.getChildren().clear();
+
                 for (Message h : pendingHistory) {
                     addBubbleInternal(h, h.getFrom().equals(client.getUsername()));
+                    allMessages.add(h);
                 }
-                for (Component c : existing) messagePanel.add(c);
+                // 恢复之前的实时消息节点
+                messageBox.getChildren().addAll(existingNodes);
                 pendingHistory.clear();
-                // 补充历史加载期间收到的实时消息
                 for (Message r : pendingRealtime) {
                     addBubbleInternal(r, r.getFrom().equals(client.getUsername()));
+                    allMessages.add(r);
                 }
                 pendingRealtime.clear();
-                messagePanel.revalidate();
                 scrollToBottom();
             } else {
                 pendingHistory.add(msg);
@@ -187,115 +339,54 @@ public class ChatFrame extends JFrame {
             pendingRealtime.add(msg);
             return;
         }
+        allMessages.add(msg);
+        if (searchMode) return; // 搜索模式下不显示新消息，但记录下来
         addBubbleInternal(msg, isMine);
         scrollToBottom();
     }
 
     private void addBubbleInternal(Message msg, boolean isMine) {
-        JPanel row = new JPanel(new BorderLayout());
-        row.setOpaque(false);
-        row.setBorder(new EmptyBorder(4, 4, 4, 4));
+        VBox row = new VBox(2);
+        row.setAlignment(Pos.CENTER);
+        row.setPadding(new Insets(2, 4, 2, 4));
 
-        // 时间戳
-        JLabel timeLabel = new JLabel(msg.getFormattedTime());
-        timeLabel.setFont(new Font("微软雅黑", Font.PLAIN, 10));
-        timeLabel.setForeground(Color.GRAY);
-        timeLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        // 时间
+        Label timeLabel = new Label(msg.getFormattedTime());
+        timeLabel.getStyleClass().add("bubble-time");
+        timeLabel.setAlignment(Pos.CENTER);
+        timeLabel.setMaxWidth(Double.MAX_VALUE);
 
         // 气泡
-        BubbleLabel bubble = new BubbleLabel(msg.getContent(), isMine);
+        Label bubble = new Label(msg.getContent());
+        bubble.setWrapText(true);
+        bubble.setMaxWidth(280);
+        bubble.getStyleClass().add(isMine ? "bubble-mine" : "bubble-other");
+        // 确保 Emoji 字体
+        bubble.setStyle(bubble.getStyle() + "; -fx-font-family: 'Segoe UI Emoji', 'Microsoft YaHei';");
 
-        // 头像
-        String name = isMine ? client.getUsername() : peerName;
-        JLabel avatar = MainFrame.makeAvatar(name, 34);
+        String senderName = isMine ? client.getUsername() : msg.getFrom();
+        StackPane avatar = MainFrame.makeAvatar(senderName, 34);
 
-        JPanel bubbleRow = new JPanel(new FlowLayout(isMine ? FlowLayout.RIGHT : FlowLayout.LEFT, 6, 0));
-        bubbleRow.setOpaque(false);
-        if (isMine) {
-            bubbleRow.add(bubble);
-            bubbleRow.add(avatar);
+        HBox bubbleRow = new HBox(6);
+        bubbleRow.setAlignment(isMine ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT);
+
+        if (isGroup && !isMine) {
+            VBox bubbleWithName = new VBox(1);
+            Label senderLabel = new Label(senderName);
+            senderLabel.getStyleClass().add("bubble-sender");
+            bubbleWithName.getChildren().addAll(senderLabel, bubble);
+            bubbleRow.getChildren().addAll(avatar, bubbleWithName);
+        } else if (isMine) {
+            bubbleRow.getChildren().addAll(bubble, avatar);
         } else {
-            bubbleRow.add(avatar);
-            bubbleRow.add(bubble);
+            bubbleRow.getChildren().addAll(avatar, bubble);
         }
 
-        row.add(timeLabel, BorderLayout.NORTH);
-        row.add(bubbleRow, BorderLayout.CENTER);
-        messagePanel.add(row);
-        messagePanel.revalidate();
+        row.getChildren().addAll(timeLabel, bubbleRow);
+        messageBox.getChildren().add(row);
     }
-
 
     private void scrollToBottom() {
-        SwingUtilities.invokeLater(() -> {
-            JScrollBar bar = scrollPane.getVerticalScrollBar();
-            bar.setValue(bar.getMaximum());
-        });
-    }
-
-    // ===== 气泡组件 =====
-    private static class BubbleLabel extends JPanel {
-        private final String text;
-        private final boolean isMine;
-        private static final int ARC    = 14;
-        private static final int PAD_H  = 10;
-        private static final int PAD_V  = 7;
-        private static final int MAX_W  = 260;
-
-        BubbleLabel(String text, boolean isMine) {
-            this.text   = text;
-            this.isMine = isMine;
-            setOpaque(false);
-            Font font = new Font("微软雅黑", Font.PLAIN, 14);
-            // 计算尺寸
-            FontMetrics fm = getFontMetrics(font);
-            List<String> lines = wrapText(text, fm, MAX_W - PAD_H * 2);
-            int w = 0;
-            for (String l : lines) w = Math.max(w, fm.stringWidth(l));
-            w = Math.min(w, MAX_W - PAD_H * 2) + PAD_H * 2 + 2;
-            int h = lines.size() * fm.getHeight() + PAD_V * 2 + 2;
-            setPreferredSize(new Dimension(w, h));
-            setFont(font);
-        }
-
-        @Override protected void paintComponent(Graphics g) {
-            Graphics2D g2 = (Graphics2D) g;
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-            // 背景气泡
-            g2.setColor(isMine ? BUBBLE_MINE : BUBBLE_OTHER);
-            g2.fill(new RoundRectangle2D.Float(1, 1, getWidth() - 2, getHeight() - 2, ARC, ARC));
-
-            // 文字
-            g2.setColor(Color.BLACK);
-            g2.setFont(getFont());
-            FontMetrics fm = g2.getFontMetrics();
-            List<String> lines = wrapText(text, fm, MAX_W - PAD_H * 2);
-            int y = PAD_V + fm.getAscent();
-            for (String line : lines) {
-                g2.drawString(line, PAD_H, y);
-                y += fm.getHeight();
-            }
-        }
-
-        private List<String> wrapText(String text, FontMetrics fm, int maxWidth) {
-            List<String> lines = new ArrayList<>();
-            String[] paragraphs = text.split("\n", -1);
-            for (String para : paragraphs) {
-                if (para.isEmpty()) { lines.add(""); continue; }
-                StringBuilder sb = new StringBuilder();
-                for (char c : para.toCharArray()) {
-                    sb.append(c);
-                    if (fm.stringWidth(sb.toString()) > maxWidth) {
-                        sb.deleteCharAt(sb.length() - 1);
-                        lines.add(sb.toString());
-                        sb = new StringBuilder(String.valueOf(c));
-                    }
-                }
-                if (sb.length() > 0) lines.add(sb.toString());
-            }
-            return lines;
-        }
+        Platform.runLater(() -> scrollPane.setVvalue(1.0));
     }
 }

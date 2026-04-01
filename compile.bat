@@ -1,23 +1,21 @@
 @echo off
 chcp 65001 >nul
+cd /d "%~dp0"
+echo ============================================
+echo   ChaTTE 编译脚本 (Maven)
+echo ============================================
+echo.
+
+set JAVA_HOME=D:\env\zulu21.48.17-ca-jdk21.0.10-win_x64
+
 echo 正在编译...
-
-if not exist out mkdir out
-if not exist data mkdir data
-
-javac -encoding UTF-8 -d out -sourcepath src ^
-    src/common/Message.java ^
-    src/server/MessageStore.java ^
-    src/server/ClientHandler.java ^
-    src/server/ChatServer.java ^
-    src/client/ChatClient.java ^
-    src/client/LoginFrame.java ^
-    src/client/MainFrame.java ^
-    src/client/ChatFrame.java
-
+call mvnw.cmd compile
 if %errorlevel% == 0 (
+    echo.
     echo 编译成功！
+    echo 输出目录: target\classes
 ) else (
+    echo.
     echo 编译失败，请检查错误信息。
-    pause
 )
+pause

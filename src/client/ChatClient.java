@@ -34,7 +34,6 @@ public class ChatClient {
 
     public synchronized void setListener(MessageListener listener) {
         this.listener = listener;
-        // 将缓冲期间收到的消息全部补发给 listener
         for (Message m : messageBuffer) listener.onMessage(m);
         messageBuffer.clear();
     }
@@ -93,6 +92,18 @@ public class ChatClient {
         send(new Message(Message.HISTORY_REQ, username, "server", peerUsername));
     }
 
+    public void requestGroupHistory(String groupId) {
+        send(new Message(Message.GROUP_HISTORY_REQ, username, "server", groupId));
+    }
+
+    public void searchMessages(String peer, String keyword) {
+        send(new Message(Message.SEARCH_REQ, username, "server", peer + "|" + keyword));
+    }
+
+    public void searchGroupMessages(String groupId, String keyword) {
+        send(new Message(Message.GROUP_SEARCH_REQ, username, "server", groupId + "|" + keyword));
+    }
+
     public void disconnect() {
         try {
             if (socket != null && !socket.isClosed()) {
@@ -110,12 +121,10 @@ public class ChatClient {
             while (true) {
                 Message msg = (Message) in.readObject();
                 String t = msg.getType();
-                // 登录/注册结果走 authQueue
                 if (t.equals(Message.LOGIN_SUCCESS) || t.equals(Message.LOGIN_FAIL)
                         || t.equals(Message.REGISTER_SUCCESS) || t.equals(Message.REGISTER_FAIL)) {
                     authQueue.offer(msg);
                 } else {
-                    // 普通消息：listener 已设置则直接转发，否则缓冲
                     synchronized (this) {
                         if (listener != null) {
                             listener.onMessage(msg);

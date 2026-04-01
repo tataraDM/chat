@@ -3,6 +3,8 @@ package server;
 import common.Message;
 import java.io.*;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class ClientHandler implements Runnable {
@@ -61,7 +63,16 @@ public class ClientHandler implements Runnable {
                     send(new Message(Message.REGISTER_FAIL, "server", uname, "用户名不能为空"));
                     return;
                 }
-                if (db.register(uname, msg.getContent())) {
+                if (uname.length() > 20) {
+                    send(new Message(Message.REGISTER_FAIL, "server", uname, "用户名不能超过20个字符"));
+                    return;
+                }
+                String pwd = msg.getContent();
+                if (pwd == null || pwd.length() < 3) {
+                    send(new Message(Message.REGISTER_FAIL, "server", uname, "密码不能少于3个字符"));
+                    return;
+                }
+                if (db.register(uname, pwd)) {
                     System.out.println("[Server] 新用户注册: " + uname);
                     send(new Message(Message.REGISTER_SUCCESS, "server", uname, "注册成功"));
                 } else {
@@ -91,6 +102,8 @@ public class ClientHandler implements Runnable {
                 send(new Message(Message.LOGIN_SUCCESS, "server", username, "登录成功"));
                 // 发送联系人列表
                 sendContacts(db);
+                // 发送群列表
+                sendGroupList(db);
                 // 推送待处理的好友申请
                 sendPendingRequests(db);
                 // 广播在线状态
@@ -145,15 +158,12 @@ public class ClientHandler implements Runnable {
             }
 
             case Message.FRIEND_ACCEPT: {
-                // from=接受者, to=请求发起者, content="accept" or "reject"
                 String acceptor  = msg.getFrom();
                 String requester = msg.getTo();
                 boolean accept   = "accept".equals(msg.getContent());
                 if (accept) {
                     db.acceptFriendRequest(requester, acceptor);
-                    // 通知接受者更新联系人列表
                     sendContacts(db);
-                    // 通知请求方（如果在线）
                     ClientHandler requesterHandler = server.getUser(requester);
                     if (requesterHandler != null) {
                         requesterHandler.sendContacts(db);
@@ -168,6 +178,100 @@ public class ClientHandler implements Runnable {
                                 acceptor, requester, acceptor + " 拒绝了你的好友请求"));
                     }
                 }
+                break;
+            }
+
+            case Message.FRIEND_DELETE: {
+                String deleter = msg.getFrom();
+                String target  = msg.getTo();
+                db.deleteFriend(deleter, target);
+                // 刷新双方联系人列表
+                sendContacts(db);
+                ClientHandler targetHandler = server.getUser(target);
+                if (targetHandler != null) {
+                    targetHandler.sendContacts(db);
+                }
+                send(new Message(Message.FRIEND_DELETE, "server", deleter, "已删除好友 " + target));
+                break;
+            }
+
+            // === 群聊 ===
+            case Message.GROUP_CREATE: {
+                // content = 群名,成员1,成员2,...
+                String[] parts = msg.getContent().split(",");
+                if (parts.length < 2) {
+                    send(new Message(Message.FRIEND_REJECT, "server", msg.getFrom(), "至少选择一个群成员"));
+                    return;
+                }
+                String groupName = parts[0];
+                List<String> members = new ArrayList<>();
+                for (int i = 1; i < parts.length; i++) members.add(parts[i].trim());
+                int groupId = db.createGroup(groupName, msg.getFrom(), members);
+                if (groupId > 0) {
+                    send(new Message(Message.GROUP_CREATE_OK, "server", msg.getFrom(),
+                            String.valueOf(groupId)));
+                    // 给所有成员刷新群列表
+                    sendGroupList(db);
+                    for (String m : members) {
+                        ClientHandler mh = server.getUser(m);
+                        if (mh != null) mh.sendGroupList(db);
+                    }
+                }
+                break;
+            }
+
+            case Message.GROUP_CHAT: {
+                int groupId = Integer.parseInt(msg.getTo());
+                db.saveGroupMessage(groupId, msg);
+                // 广播给群内所有在线成员（除发送者自己）
+                List<String> members = db.getGroupMembers(groupId);
+                for (String m : members) {
+                    if (!m.equals(msg.getFrom())) {
+                        ClientHandler mh = server.getUser(m);
+                        if (mh != null) mh.send(msg);
+                    }
+                }
+                break;
+            }
+
+            case Message.GROUP_HISTORY_REQ: {
+                int groupId = Integer.parseInt(msg.getContent());
+                List<Message> history = db.getGroupHistory(groupId);
+                for (Message h : history) {
+                    send(new Message(Message.GROUP_HISTORY_RESP,
+                            h.getFrom(), h.getTo(), h.getContent(), h.getTimestamp()));
+                }
+                send(new Message(Message.GROUP_HISTORY_RESP, "__END__",
+                        String.valueOf(groupId), ""));
+                break;
+            }
+
+            // === 搜索 ===
+            case Message.SEARCH_REQ: {
+                // content = peer|keyword
+                String[] sp = msg.getContent().split("\\|", 2);
+                if (sp.length < 2) break;
+                List<Message> results = db.searchMessages(msg.getFrom(), sp[0], sp[1]);
+                for (Message r : results) {
+                    send(new Message(Message.SEARCH_RESP,
+                            r.getFrom(), r.getTo(), r.getContent(), r.getTimestamp()));
+                }
+                send(new Message(Message.SEARCH_RESP, "__END__", sp[0], ""));
+                break;
+            }
+
+            // === 群聊搜索 ===
+            case Message.GROUP_SEARCH_REQ: {
+                // content = groupId|keyword
+                String[] sp = msg.getContent().split("\\|", 2);
+                if (sp.length < 2) break;
+                int groupId = Integer.parseInt(sp[0]);
+                List<Message> results = db.searchGroupMessages(groupId, sp[1]);
+                for (Message r : results) {
+                    send(new Message(Message.GROUP_SEARCH_RESP,
+                            r.getFrom(), r.getTo(), r.getContent(), r.getTimestamp()));
+                }
+                send(new Message(Message.GROUP_SEARCH_RESP, "__END__", sp[0], ""));
                 break;
             }
 
@@ -188,6 +292,13 @@ public class ClientHandler implements Runnable {
         List<String> contacts = db.getContacts(username);
         send(new Message(Message.CONTACTS, "server", username,
                 String.join(",", contacts)));
+    }
+
+    /** 向本客户端推送群列表 */
+    void sendGroupList(DatabaseManager db) {
+        List<String> groups = db.getUserGroups(username);
+        send(new Message(Message.GROUP_LIST, "server", username,
+                String.join(",", groups)));
     }
 
     /** 向本客户端推送待处理的好友申请列表 */
